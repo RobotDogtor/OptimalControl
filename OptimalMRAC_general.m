@@ -16,8 +16,8 @@ invvec = @(vec) reshape(vec,n,length(vec)/n);
 %Real system: dx = Astar*x + Bstar*u
 % Astar = (rand(n,n)-0.5)*10;
 % Bstar = (rand(n,m)-0.5)*5;
-Astar = [0 -10;
-         2 -12];
+Astar = [0 1;
+         -2 -12];
 Bstar = [-1; -7];
 
 thAhat_star = vec(Astar);
@@ -30,20 +30,20 @@ Br = [0 -1]';
 
 %% Optimal Adaptive
 %tuning
-Qa = diag(ones(1,n*n)*1);
-Qb = diag(ones(1,n*m)*1);
+Qa = diag(ones(1,n*n)*0.5);
+Qb = diag(ones(1,n*m)*0.5);
 Rr1 = diag(ones(1,n)*10); %Lyapunov derivative for reference model control
 Rr2 = diag(ones(1,m)*1);
 Rr2inv = inv(Rr2);
-R1 = diag(ones(1,n)*1); %Lyapunov derivative for error dynamics
+R1 = diag(ones(1,n)*10); %Lyapunov derivative for error dynamics
 R2 = diag(ones(1,m)*1); %Weight Matrix for L = ... u'R2u ...
 R2inv = inv(R2);
 
 %Initial Values
 x0 = [1 0]';
-xr0 = [1 0]';
+xr0 = [0 0]';
 e0 = x0-xr0;
-Ahat0 = [-4 -5; -6 -7];
+Ahat0 = [0 1; -6 -7];
 Bhat0 = [3 5]';
 thAhat0 = vec(Ahat0);
 thBhat0 = vec(Bhat0);
@@ -129,13 +129,13 @@ function dxs = odefcn_optimal(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R2inv,n,
     %find u
     e = x-xr;
     S = 2*Bhat*R2inv*Bhat';
-    P = lyap(Ar,R1);
-    c1 = e'*P*Bhat*R2inv;
-    c2 = 2*e'*P*((Ahat-Ar)*x - Br*r - 0.5*S*P*e);
+    P = lyap(Ar,S,R1);
+    c1 = Bhat*R2inv;
+    c2 = 2*((Ahat-Ar)*x - Br*r);
     if norm(c1)<=0.0001
         L2T = zeros(1,size(Bhat,2))+100;
     else
-        L2T = (c1\c2);
+        L2T = ([1 0]*c1\[1 0]*c2);
     end
     u = -0.5*R2inv*(2*Bhat'*P*e+L2T);
     %calculate derivatives
@@ -143,6 +143,61 @@ function dxs = odefcn_optimal(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R2inv,n,
     dxr = Ar*xr+ Br*r;
     dthAhat = Qa*kron(x,eye(length(x)))*P*e;
     dthBhat = Qb*kron(u,eye(length(u)))*P*e;
+    
+    thAhat_tilde = thAhat - vec(Astar);
+    thBhat_tilde = thBhat - vec(Bstar);
+    %V1 is base lyap function after all is done, V3 from simple derivative,
+    %V2 after substitution of adaptive laws into derivative
+    dV2 = 2*e'*P*(Astar*x + Bstar*u - Ar*xr - Br*r) + 2*thAhat_tilde'*inv(Qa)*dthAhat + 2*thBhat_tilde'*inv(Qb)*dthBhat;
+    dV3 = 2*e'*P*(Ahat*x + Bhat*u -Ar*xr-Br*r);
+    dxs = [dx; dxr; dthAhat; dthBhat; dV2; dV3];
+end
+
+%%
+function dxs = odefcn_starController(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R2inv,n,m)
+    if t-round(t*2)/2<0.0001
+        disp(['t = ' num2str(t)])
+    end
+    vec = @(Mat) reshape(Mat,size(Mat,1)*size(Mat,2),1);
+    invvec = @(vec) reshape(vec,n,length(vec)/n);
+    %identify simulation states
+    x = y(1:n);  xr = y(n+1:2*n);  thAhat = y(2*n+1:2*n+n*n);  
+    thBhat = y(2*n+n*n+1:2*n+n*n+n*m);  V2 = y(end-1);  V3 = y(end);
+    Ahat = invvec(thAhat);  Bhat = invvec(thBhat);
+    %find r
+    [xd_,dxd_,ddxd_] = xd_fcn(t);
+    xd = [xd_; dxd_];
+    dxd = [dxd_; ddxd_];
+%     Pr = are(Ar,2*Br*Rr2inv*Br',Rr1);
+%     er = xr-xd;
+%     cr1 = (er'*Pr*Br*Rr2inv);   cr2 = (2*er'*Pr*(Ar*xd-dxd));
+    S = 2*Br*Rr2inv*Br';
+    Pr = lyap(Ar,Rr1);
+    er = xr-xd;
+    cr1 = (er'*Pr*Br*Rr2inv);   cr2 = (2*er'*Pr*(Ar*xd-dxd - 0.5*S*Pr*er));
+    if norm(cr1)<=0.001
+        L2rT = zeros(1,size(Bhat,2));
+    else
+        L2rT = cr1\cr2;
+    end
+    r = -Rr2inv*(Br'*Pr*er + 0.5*L2rT);
+    %find u
+    e = x-xr;
+    S = 2*Bstar*R2inv*Bstar';
+    P = are(Ar,S,R1);
+    c1 = Bstar*R2inv;
+    c2 = 2*((Astar-Ar)*x - Br*r);
+    if norm(c1)<=0.0001
+        L2T = zeros(1,size(Bstar,2))+1000;
+    else
+        L2T = ([1 0]*c1\[1 0]*c2);
+    end
+    u = -0.5*R2inv*(2*Bstar'*P*e+L2T);
+    %calculate derivatives
+    dx = Astar*x + Bstar*u;
+    dxr = Ar*xr+ Br*r;
+    dthAhat = 0*Qa*kron(x,eye(length(x)))*P*e;
+    dthBhat = 0*Qb*kron(u,eye(length(u)))*P*e;
     
     thAhat_tilde = thAhat - vec(Astar);
     thBhat_tilde = thBhat - vec(Bstar);

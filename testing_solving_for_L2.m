@@ -3,7 +3,7 @@ clear
 clc
 
 %% 
-n = 8;
+n = 2;
 m = 1;
 
 %n size
@@ -32,3 +32,14 @@ coeff3 = 0.5*B*inv(R2)*L2';
 coeff4 = (A-Ar)*x - Br*r;
 test3 = e'*P*coeff3 - e'*P*coeff4
 test4 = e'*P*(coeff3 - coeff4)
+
+
+%%
+
+coeff1 = B*inv(R2)
+coeff2 = 2*((A-Ar)*x - Br*r)
+L22 = [1 0]*coeff1\[1 0]*coeff2
+test5 = coeff1*L22 - coeff2
+
+
+

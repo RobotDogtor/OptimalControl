@@ -41,7 +41,7 @@ R2inv = inv(R2);
 
 %Initial Values
 x0 = [1 0]';
-xr0 = [0 0]';
+xr0 = [2 0]';
 e0 = x0-xr0;
 Ahat0 = [0 1; -6 -7];
 Bhat0 = [3 5]';
@@ -53,12 +53,12 @@ V20 =(x0-xr0)'*P0*(x0-xr0) + (thAhat0-thAhat_star)'*inv(Qa)*(thAhat0-thAhat_star
 V30 = V20;
 xs0 = [x0; xr0; thAhat0; thBhat0; V20; V30];
 %time
-t_end = 0.5;
+t_end = 10;
 tspan = [0 t_end];
 %Simulate
 opts = odeset('RelTol',1e-6);
 tic
-[t_ode,xs] = ode45(@(t,y) odefcn_optimal(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R2inv,n,m),tspan,xs0,opts);
+[t_ode,xs] = ode45(@(t,y) odefcn_starController(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R2inv,n,m),tspan,xs0,opts);
 toc
 % Results
 t_ode = t_ode';
@@ -168,19 +168,24 @@ function dxs = odefcn_starController(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R
     [xd_,dxd_,ddxd_] = xd_fcn(t);
     xd = [xd_; dxd_];
     dxd = [dxd_; ddxd_];
-%     Pr = are(Ar,2*Br*Rr2inv*Br',Rr1);
-%     er = xr-xd;
-%     cr1 = (er'*Pr*Br*Rr2inv);   cr2 = (2*er'*Pr*(Ar*xd-dxd));
     S = 2*Br*Rr2inv*Br';
-    Pr = lyap(Ar,Rr1);
+    Pr = are(Ar,2*Br*Rr2inv*Br',Rr1);
     er = xr-xd;
-    cr1 = (er'*Pr*Br*Rr2inv);   cr2 = (2*er'*Pr*(Ar*xd-dxd - 0.5*S*Pr*er));
-    if norm(cr1)<=0.001
-        L2rT = zeros(1,size(Bhat,2));
-    else
-        L2rT = cr1\cr2;
-    end
+%     cr1 = (er'*Pr*Br*Rr2inv);   cr2 = (2*er'*Pr*(Ar*xd-dxd));
+%     
+% %     Pr = lyap(Ar,Rr1);
+% %     er = xr-xd;
+% %     cr1 = (er'*Pr*Br*Rr2inv);   cr2 = (2*er'*Pr*(Ar*xd-dxd - 0.5*S*Pr*er));
+%     if norm(cr1)<=0.001
+%         L2rT = zeros(1,size(Bhat,2));
+%     else
+%         L2rT = cr1\cr2;
+%     end
+    xddiff = (Ar*xd-dxd);
+    Bi = (er'*Pr*Br)'*xddiff'*abs(4*er'*Pr*xddiff)*(1/(er'*Pr*Br*(er'*Pr*Br)')) *(1/(xddiff'*xddiff));
+    L2rT = inv(Rr2inv)*Bi*(Ar*xd-dxd);
     r = -Rr2inv*(Br'*Pr*er + 0.5*L2rT);
+
     %find u
     e = x-xr;
     S = 2*Bstar*R2inv*Bstar';
@@ -205,5 +210,5 @@ function dxs = odefcn_starController(t,y,Astar,Bstar,Ar,Br,Qa,Qb,Rr1,Rr2inv,R1,R
     %V2 after substitution of adaptive laws into derivative
     dV2 = 2*e'*P*(Astar*x + Bstar*u - Ar*xr - Br*r) + 2*thAhat_tilde'*inv(Qa)*dthAhat + 2*thBhat_tilde'*inv(Qb)*dthBhat;
     dV3 = 2*e'*P*(Ahat*x + Bhat*u -Ar*xr-Br*r);
-    dxs = [dx; dxr; dthAhat; dthBhat; dV2; dV3];
+    dxs = [dx*0; dxr; dthAhat*0; dthBhat*0; dV2; dV3];
 end

@@ -33,21 +33,21 @@ Br = [0 wn^2]';
 %% Optimal Adaptive
 %tuning
 Qa = diag(ones(1,n*n)*5);
-Qb = diag(ones(1,m)*5);
+Qb = diag(ones(1,m)*10);
 R1 = diag(ones(1,n)*1); %Lyapunov derivative for error dynamics
-R2 = diag(ones(1,m)*100); %Weight Matrix for L = ... u'R2u ...
+R2 = diag(ones(1,m)*1); %Weight Matrix for L = ... u'R2u ...
 R2inv = inv(R2);
 
 %Initial Values
-x0 = [1 0]';
-xr0 = [0 0]';
+x0 = [0 0]';
+xr0 = [1 0]';
 e0 = x0-xr0;
 Ahat0 = Astar;
 Bhat0 = bstar;
 thAhat0 = vec(Ahat0);
 thBhat0 = vec(Bhat0);
 % solve are for X:  A'*X + X*A - X*B*X + C = 0   X = are(A, B, C)
-P0 = lyap(Ar,R1);
+P0 = lyap(Ar',R1);
 V20 =(x0-xr0)'*P0*(x0-xr0) + (thAhat0-thAhat_star)'*inv(Qa)*(thAhat0-thAhat_star) +  (thBhat0-thBhat_star)'*inv(Qb)*(thBhat0-thBhat_star);
 V30 = V20;
 xs0 = [x0; xr0; thAhat0; thBhat0; V20; V30];
@@ -68,7 +68,7 @@ thBhat = xs(:,2*n+n*n+1:2*n+n*n+m)';
 V2 = xs(:,end-1)';
 V3 = xs(:,end)';
 for i = 1:length(t_ode)
-    P = lyap(Ar,R1);
+    P = lyap(Ar',R1);
     V1(i) = (x(:,i)-xr(:,i))'*P*(x(:,i)-xr(:,i)) + ...
             (thAhat(:,i)-thAhat_star)'*inv(Qa)*(thAhat(:,i)-thAhat_star) + ...
             (thBhat(:,i)-thBhat_star)'*inv(Qb)*(thBhat(:,i)-thBhat_star);
@@ -99,9 +99,7 @@ function [xd,dxd,ddxd] = xd_fcn(t)
 end
 
 function dxs = odefcn_optimal(t,y,Astar,Bstar,Ar,Br,Qa,Qb,R1,R2inv,n,m)
-    if t-round(t*2)/2<0.0001
-        disp(['t = ' num2str(t)])
-    end
+
     vec = @(Mat) reshape(Mat,size(Mat,1)*size(Mat,2),1);
     invvec = @(vec) reshape(vec,n,length(vec)/n);
     %identify simulation states
@@ -112,22 +110,15 @@ function dxs = odefcn_optimal(t,y,Astar,Bstar,Ar,Br,Qa,Qb,R1,R2inv,n,m)
     [xd,dxd,ddxd] = xd_fcn(t);
     r = xd + dxd*Ar(2,2)/Ar(2,1) - ddxd/Ar(2,1);
     %find u
-    if Bhat==0
-        Bhat =0.1;
-        thBhat = 0.1;
-    end
     e = x-xr;
-    S = [0 0; 0 2*Bhat*R2inv*Bhat];
-    P = lyap(Ar,R1);
-%     c1 = 2*e'*P*((Ahat-Ar)*x-Br*r-0.5*S*P*e);
-    c1 = 2*e'*P*((Ahat-Ar)*x-Br*r);
-    c2 = e'*P(:,2)*Bhat*R2inv;
-    if abs(c2)<=0.000001
-        L2T = c1/100000;
-    else
-        L2T = c1/c2;
+    P = lyap(Ar',R1);
+    diff = (Ahat-Ar)*x-Br*r;
+    u =  -e'*P/(e'*P(:,2)*Bhat) *diff;
+    L2T = -2*Bhat*P(2,:)*e + 2*inv(R2inv)*e'*P*diff/(e'*P(:,2)*Bhat);
+    if L2T>1000
+        L2T = 1000;
     end
-    u = -R2inv*(Bhat'*P(2,:)*e+0.5*L2T);
+    u = -R2inv*(Bhat*P(2,:)*e+0.5*L2T);
     %calculate derivatives
     dx = Astar*x + Bstar*u;
     dxr = Ar*xr+ Br*r;
@@ -140,5 +131,11 @@ function dxs = odefcn_optimal(t,y,Astar,Bstar,Ar,Br,Qa,Qb,R1,R2inv,n,m)
     %V2 after substitution of adaptive laws into derivative
     dV2 = 2*e'*P*(Astar*x + Bstar*u - Ar*xr - Br*r) + 2*thAhat_tilde'*inv(Qa)*dthAhat + 2*thBhat_tilde'*inv(Qb)*dthBhat;
     dV3 = 2*e'*P*(Ahat*x + [0;Bhat]*u -Ar*xr-Br*r);
+    dV4 = -e'*R1*e;
+    dV5 = 2*e'*P*(Ahat*x - [0;Bhat]*(R2inv*(Bhat*P(2,:)*e + 0.5*R2inv*L2T)) -Ar*xr-Br*r);
+    dV6 = 2*e'*P*(Ar*e - [0;Bhat]*(R2inv*(Bhat*P(2,:)*e + 0.5*R2inv*L2T)) + diff);
+    dV7 = 2*e'*P*Ar*e + 2*e'*P*(- [0;Bhat]*(R2inv*(Bhat*P(2,:)*e + 0.5*R2inv*L2T)) + diff);
+    dV8 = e'*(Ar'*P + P*Ar)*e + 2*e'*P*(- [0;Bhat]*(R2inv*(Bhat*P(2,:)*e + 0.5*R2inv*L2T)) + diff);
+    dV9 = -e'*R1*e + 2*e'*P*(- [0;Bhat]*(R2inv*(Bhat*P(2,:)*e + 0.5*R2inv*L2T)) + diff);
     dxs = [dx; dxr; dthAhat; dthBhat; dV2; dV3];
 end
